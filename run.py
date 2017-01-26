@@ -1,6 +1,6 @@
-from resNet import *
+from resNet_50 import *
 import tensorflow as tf
-import image_reader_png
+import image_reader
 import os
 import glob
 import time
@@ -47,7 +47,7 @@ def train():
                                initializer=tf.constant_initializer(0),
                                trainable=False)
 
-    x_batch, y_batch = image_reader_png.input_pipeline(FLAGS.batch_size,
+    x_batch, y_batch = image_reader.input_pipeline(FLAGS.batch_size,
                                                    sampling_size=FLAGS.sampling_size,
                                                    min_after_dequeue=FLAGS.min_after_dequeue,
                                                    labels=labels,
@@ -164,7 +164,7 @@ def test():
 
     how_many_times = total_amount / (FLAGS.batch_size)
 
-    x_batch, y_batch = image_reader_png.input_pipeline(FLAGS.batch_size,
+    x_batch, y_batch = image_reader.input_pipeline(FLAGS.batch_size,
                                                        sampling_size=FLAGS.sampling_size,
                                                        min_after_dequeue=how_many_times,
                                                        labels=test_labels,
