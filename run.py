@@ -13,9 +13,9 @@ FLAGS = tf.app.flags.FLAGS
 tf.app.flags.DEFINE_float('learning_rate', 0.01, "learning rate.")
 tf.app.flags.DEFINE_boolean('resume', False, "learning rate.")
 tf.app.flags.DEFINE_integer('iteration', 100000, "max steps")
-tf.app.flags.DEFINE_integer('batch_size', 1, "batch size")
+tf.app.flags.DEFINE_integer('batch_size', 4, "batch size")
 tf.app.flags.DEFINE_integer('min_after_dequeue', 100, "amount of images stored in queue")
-tf.app.flags.DEFINE_integer('sampling_size', 227, "sampling_size")
+tf.app.flags.DEFINE_integer('sampling_size', 512, "sampling_size")
 tf.app.flags.DEFINE_string('training_set_path', './training_set', "path of training data set")
 tf.app.flags.DEFINE_string('test_set_path', './test_set', "path of test data set")
 tf.app.flags.DEFINE_string('data_path', './data', "path of files needed to train")
@@ -35,8 +35,7 @@ for l in ls:
 
 indices = dict()
 for i in range(len(labels)):
-    indices[labels[i]] = [0 for _ in range(len(labels))]
-    indices[labels[i]][i] = 1
+    indices[labels[i]] = i
 
 def train():
 
@@ -59,13 +58,13 @@ def train():
     loss_ = loss(model_, y_batch)
     predictions = tf.nn.softmax(model_)
 
-    correct_in_1 = tf.nn.in_top_k(predictions, tf.arg_max(y_batch, 1), k=1)
-    correct_in_5 = tf.nn.in_top_k(predictions, tf.arg_max(y_batch, 1), k=5)
+    correct_in_1 = tf.nn.in_top_k(predictions, y_batch, k=1)
+    correct_in_5 = tf.nn.in_top_k(predictions, y_batch, k=5)
 
     accuracy_in_1 = tf.reduce_mean(tf.cast(correct_in_1, tf.float32))
     accuracy_in_5 = tf.reduce_mean(tf.cast(correct_in_5, tf.float32))
 
-    top1_error = top_k_error(predictions, tf.arg_max(y_batch, 1), 1)
+    top1_error = top_k_error(predictions, y_batch, 1)
 
     # loss_avg
     ema = tf.train.ExponentialMovingAverage(MOVING_AVERAGE_DECAY, global_step)
@@ -162,15 +161,13 @@ def test():
         fs = glob.glob(os.path.join(l, '*'))
         total_amount += len(fs)
 
-    how_many_times = total_amount / (FLAGS.batch_size)
-
-    x_batch, y_batch = image_reader.input_pipeline(FLAGS.batch_size,
-                                                       sampling_size=FLAGS.sampling_size,
-                                                       min_after_dequeue=how_many_times,
-                                                       labels=test_labels,
-                                                       indices=indices,
-                                                       is_shuffle=False,
-                                                       path='./test_set')
+    x_batch, y_batch = image_reader.input_pipeline(batch_size=1,
+                                                   sampling_size=FLAGS.sampling_size,
+                                                   min_after_dequeue=total_amount,
+                                                   labels=test_labels,
+                                                   indices=indices,
+                                                   is_shuffle=False,
+                                                   path='./test_set')
 
     model_ = model(x_batch,
                    is_training=False,
@@ -178,14 +175,15 @@ def test():
 
     predictions = tf.nn.softmax(model_)
 
-    correct_in_1 = tf.nn.in_top_k(predictions, tf.arg_max(y_batch, 1), k=1)
-    correct_in_5 = tf.nn.in_top_k(predictions, tf.arg_max(y_batch, 1), k=5)
+    correct_in_1 = tf.nn.in_top_k(predictions, y_batch, k=1)
+    correct_in_5 = tf.nn.in_top_k(predictions, y_batch, k=5)
 
     accuracy_in_1 = tf.reduce_mean(tf.cast(correct_in_1, tf.float32))
     accuracy_in_5 = tf.reduce_mean(tf.cast(correct_in_5, tf.float32))
 
     acc_1 = 0
     acc_5 = 0
+    acc_cat = [[0, 0] for _ in range(len(labels))]
 
     saver = tf.train.Saver(tf.global_variables())
     init = tf.global_variables_initializer()
@@ -203,29 +201,36 @@ def test():
         print "resume", latest
         saver.restore(sess, latest)
 
-        for step in xrange(how_many_times):
+        for step in xrange(total_amount):
             while True:
                 try:
-                    o = sess.run([accuracy_in_1, accuracy_in_5])
+                    o = sess.run([accuracy_in_1, accuracy_in_5, correct_in_1, correct_in_5, y_batch])
                     break
                 except:
                     time.sleep(5)
                     continue
             acc_1 += o[0]
             acc_5 += o[1]
-
+            acc_cat[int(o[4])][0] += o[2]
+            acc_cat[int(o[4])][1] += o[3]
 
             if step % 10 == 0:
-                progress = (float(step) / how_many_times) * 100
+                progress = (float(step) / total_amount) * 100
                 print"Testing Progress : %.2f" % (progress)
-
 
         coord.request_stop()
         coord.join(threads)
 
-    acc_1_mean = acc_1 / float(how_many_times)
-    acc_5_mean = acc_5 / float(how_many_times)
+    acc_1_mean = acc_1 / float(total_amount)
+    acc_5_mean = acc_5 / float(total_amount)
+    for k in range(len(acc_cat)):
+        item_mean = [0, 0]
+        item_mean[0] = acc_cat[k][0] / float(total_amount)
+        item_mean[1] = acc_cat[k][1] / float(total_amount)
+        acc_cat[k] = item_mean
+
     __print_test_result(acc_1_mean, acc_5_mean)
+    __write_test_result(acc_1_mean, acc_5_mean, acc_cat)
 
 
 def __print_test_result(acc_1, acc_5):
@@ -236,6 +241,24 @@ def __print_test_result(acc_1, acc_5):
     print("*   ACCURACY (TOP IN 1)    :    %.4f           *" %(acc_1))
     print("*   ACCURACY (TOP IN 5)    :    %.4f           *" %(acc_5))
     print("**************************************************")
+
+
+def __write_test_result(acc_1, acc_5, acc_cat):
+    current_time = time.strftime('%y%m%d%H%M', time.gmtime())
+    result_file = open('result_%s' %current_time , 'w+')
+    result_file.write("**************************************************\n")
+    result_file.write("*          T E S T          R E S U L T          *\n")
+    result_file.write("**************************************************\n")
+    result_file.write("**************************************************\n")
+    result_file.write("*   TOTAL ACCURACY (TOP IN 1)    :    %.4f     *\n" %(acc_1))
+    result_file.write("*   TOTAL ACCURACY (TOP IN 5)    :    %.4f     *\n" %(acc_5))
+    result_file.write("**************************************************\n\n")
+    for k in range(len(acc_cat)):
+        food_name = labels[k]
+        result_file.write("%s ACCURACY (TOP IN 1)    :\t\t    %.4f\n" % (food_name, acc_cat[k][0]))
+        result_file.write("%s ACCURACY (TOP IN 5)    :\t\t    %.4f\n\n" % (food_name, acc_cat[k][1]))
+
+    result_file.close()
 
 
 if __name__ == '__main__':

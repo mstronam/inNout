@@ -2,8 +2,6 @@ import tensorflow as tf
 import os
 import glob
 
-image_type = 'png'
-
 
 def detect_damaged_image_file(labels, path):
     image_list = []
@@ -15,10 +13,7 @@ def detect_damaged_image_file(labels, path):
         for f in image_list:
             try:
                 image = tf.read_file(f)
-                if image_type == 'jpg':
-                    image = tf.image.decode_jpeg(image)
-                elif image_type == 'png':
-                    image = tf.image.decode_png(image)
+                image = __decode_image(image)
                 sess.run(image)
             except:
                 print f + " is damaged"
@@ -28,27 +23,13 @@ def __read_file(input_queue, sampling_size):
     file_name = input_queue[0]
     label = input_queue[1]
     record = tf.read_file(file_name)
-    if image_type is 'jpg':
-        image = __process_image_jpg(record, sampling_size)
-    elif image_type is 'png':
-        try:
-            image = __process_image_png(record, sampling_size)
-        except:
-            print file_name
-    else:
-        print "Image format is not supported : '%s'" %image_type
-        return None, None
+    image = __process_image(record, sampling_size)
     return image, label
 
 
-def __process_image_png(record, sampling_size):
-    image = tf.image.decode_png(record, 3)
-    image = tf.image.resize_images(image, (sampling_size, sampling_size))
-    return image
-
-
-def __process_image_jpg(record, sampling_size):
-    image = tf.image.decode_jpeg(record, 3)
+def __process_image(record, sampling_size):
+    image = __decode_image(record)
+    image.set_shape(tf.image.decode_png(record, 3).get_shape())
     image = tf.image.resize_images(image, (sampling_size, sampling_size))
     return image
 
@@ -60,6 +41,8 @@ def __read_labeled_image_list(labels, indices, path):
         files = glob.glob(os.path.join(path, label, '*'))
         for f in files:
             image_list.append(f)
+            processed_label = [0 for _ in range(len(labels))]
+            processed_label[indices[label]] = 1
             label_list.append(indices[label])
     return image_list, label_list
 
@@ -70,6 +53,16 @@ def __make_input_queue(labels, indices, path):
     label_list = tf.convert_to_tensor(label_list)
     input_queue = tf.train.slice_input_producer([image_list, label_list])
     return input_queue
+
+
+def __decode_image(record):
+    is_jpg = tf.equal(tf.substr(record, 0, 2), 'FFD8'.decode('hex'))
+    is_png = tf.equal(tf.substr(record, 0, 4), '89504E47'.decode('hex'))
+    return tf.cond(is_jpg,
+                   lambda: tf.image.decode_jpeg(record, 3),
+                   lambda: tf.cond(is_png,
+                                   lambda: tf.image.decode_png(record, 3),
+                                   lambda: tf.image.decode_gif(record)))
 
 
 def input_pipeline(batch_size, sampling_size, min_after_dequeue, labels, indices, is_shuffle=True, path='./training_set'):
