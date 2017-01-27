@@ -37,8 +37,8 @@ indices = dict()
 for i in range(len(labels)):
     indices[labels[i]] = i
 
-def train():
 
+def train():
     global_step = tf.get_variable('global_step', [],
                                   initializer=tf.constant_initializer(0),
                                   trainable=False)
@@ -51,11 +51,11 @@ def train():
                                                    min_after_dequeue=FLAGS.min_after_dequeue,
                                                    labels=labels,
                                                    indices=indices)
-
+    one_hot = tf.one_hot(y_batch, len(labels), on_value=1.0, off_value=0.0)
     model_ = model(x_batch,
                    is_training=True,
                    num_classes=len(labels))
-    loss_ = loss(model_, y_batch)
+    loss_ = loss(model_, one_hot)
     predictions = tf.nn.softmax(model_)
 
     correct_in_1 = tf.nn.in_top_k(predictions, y_batch, k=1)
@@ -262,4 +262,4 @@ def __write_test_result(acc_1, acc_5, acc_cat):
 
 
 if __name__ == '__main__':
-    test()
+    train()

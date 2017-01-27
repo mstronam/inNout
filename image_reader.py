@@ -41,8 +41,6 @@ def __read_labeled_image_list(labels, indices, path):
         files = glob.glob(os.path.join(path, label, '*'))
         for f in files:
             image_list.append(f)
-            processed_label = [0 for _ in range(len(labels))]
-            processed_label[indices[label]] = 1
             label_list.append(indices[label])
     return image_list, label_list
 
@@ -72,6 +70,6 @@ def input_pipeline(batch_size, sampling_size, min_after_dequeue, labels, indices
     if is_shuffle:
         x_batch, y_batch = tf.train.shuffle_batch([images, lbs], batch_size, capacity, min_after_dequeue)
     else:
-        x_batch, y_batch = tf.train.batch([images, lbs], batch_size, capacity=capacity, num_threads=1)
+        x_batch, y_batch = tf.train.batch([images, lbs], batch_size, capacity=capacity)
 
     return x_batch, y_batch
